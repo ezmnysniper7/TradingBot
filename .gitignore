@@ -8,3 +8,9 @@ venv/
 
 # Ignore configuration files
 config.py
+
+# Ignore History data csv
+BNBUSDT_historical.csv
+btc_usdt_historical.csv
+BTCUSDT_historical.csv
+ETHUSDT_historical.csv
