@@ -73,8 +73,11 @@ class TestStrategy(bt.Strategy):
             self.indicators[symbol] = {}
             self.indicators[symbol]['ema_short'] = bt.indicators.EMA(data.close, period=self.params.short_window)
             self.indicators[symbol]['ema_long'] = bt.indicators.EMA(data.close, period=self.params.long_window)
+            self.indicators[symbol]['macd'] = bt.indicators.MACD(data.close)
+            self.indicators[symbol]['adx'] = bt.indicators.ADX(data)
             self.indicators[symbol]['rsi'] = bt.indicators.RSI(data.close)
             self.indicators[symbol]['atr'] = bt.indicators.ATR(data, period=self.params.atr_period)
+            self.indicators[symbol]['bollinger'] = bt.indicators.BollingerBands(data.close)
             self.indicators[symbol]['buy_price'] = None
             self.indicators[symbol]['stop_loss_price'] = None
 
@@ -83,49 +86,69 @@ class TestStrategy(bt.Strategy):
             symbol = data._name
             pos = self.getposition(data).size
             price = data.close[0]
-            ema_short = self.indicators[symbol]['ema_short'][0]
-            ema_long = self.indicators[symbol]['ema_long'][0]
-            rsi = self.indicators[symbol]['rsi'][0]
-            atr = self.indicators[symbol]['atr'][0]
+            ind = self.indicators[symbol]
+            ema_short = ind['ema_short'][0]
+            ema_long = ind['ema_long'][0]
+            macd_line = ind['macd'].macd[0]
+            macd_signal = ind['macd'].signal[0]
+            adx = ind['adx'][0]
+            rsi = ind['rsi'][0]
+            atr = ind['atr'][0]
+            bollinger_mid = ind['bollinger'].mid[0]
+            bollinger_top = ind['bollinger'].top[0]
+            bollinger_bot = ind['bollinger'].bot[0]
             current_date = data.datetime.datetime(0)
 
             # Print indicator values
             print(
                 f"Symbol: {symbol}, Date: {current_date}, "
-                f"EMA Short: {ema_short:.2f}, EMA Long: {ema_long:.2f}, RSI: {rsi:.2f}"
+                f"EMA Long: {ema_long:.2f}, MACD: {macd_line:.2f}, ADX: {adx:.2f}, RSI: {rsi:.2f}"
             )
 
             if pos == 0:
-                if ema_short > ema_long and rsi < 50:
+                # Entry Criteria
+                if (
+                    ema_short > ema_long and
+                    macd_line > macd_signal and
+                    adx > 25 and
+                    40 < rsi < 60 and
+                    price > bollinger_mid
+                ):
                     # Risk management: position sizing based on ATR
-                    risk_per_trade = 0.01  # Risk 1% of portfolio
+                    risk_per_trade = 0.05  # Risk 1% of portfolio
                     cash = self.broker.get_cash()
                     if atr > 0:
                         stop_loss_price = price - atr * 2
                         position_size = (cash * risk_per_trade) / (atr * 2)
                         if position_size > 0:
                             self.buy(data=data, size=position_size)
-                            self.indicators[symbol]['buy_price'] = price
-                            self.indicators[symbol]['stop_loss_price'] = stop_loss_price
+                            ind['buy_price'] = price
+                            ind['stop_loss_price'] = stop_loss_price
                             print(f"Buy order executed for {symbol} on {current_date}")
                         else:
                             print(f"Position size is zero or negative for {symbol} on {current_date}, trade not executed.")
                     else:
                         print(f"ATR is zero or negative for {symbol} on {current_date}, trade not executed.")
             else:
-                stop_loss_price = self.indicators[symbol].get('stop_loss_price', None)
+                # Exit Criteria
+                stop_loss_price = ind.get('stop_loss_price', None)
                 if stop_loss_price and price <= stop_loss_price:
                     self.close(data=data)
                     print(f"Position closed for {symbol} on {current_date} due to stop-loss")
-                elif ema_short < ema_long and rsi > 70:
+                elif (
+                    ema_short < ema_long and
+                    macd_line < macd_signal and
+                    adx < 25 and
+                    price < bollinger_mid
+                ):
                     self.close(data=data)
                     print(f"Sell order executed for {symbol} on {current_date}")
 
 
 if __name__ == "__main__":
     # Convert date strings to timestamps in milliseconds
-    start_str = "2022-01-01"
-    end_str = "2022-03-01"  # Adjust the end date for a shorter timeframe
+    start_str = "2024-01-01"
+    end_str = "2024-03-01"  # Adjust the end date for a shorter timeframe
 
     start_ts = int(datetime.datetime.strptime(start_str, "%Y-%m-%d").timestamp() * 1000)
     end_ts = int(datetime.datetime.strptime(end_str, "%Y-%m-%d").timestamp() * 1000)
