@@ -9,24 +9,15 @@ import time
 import pandas_ta as ta
 import logging
 import traceback
-
+from data_fetcher import get_historical_data
 import config
 
 client = Client(config.API_KEY, config.API_SECRET)
 #Below line is testing URL
-client.API_URL = 'https://testnet.binance.vision/api' 
+# client.API_URL = 'https://testnet.binance.vision/api' 
 
 logging.basicConfig(filename='trading_bot.log', level=logging.INFO,
                     format='%(asctime)s:%(levelname)s:%(message)s')
-
-def get_historical_data(symbol, interval, lookback):
-    frame = pd.DataFrame(client.get_historical_klines(symbol, interval, lookback + ' min ago UTC'))
-    frame = frame.iloc[:, 0:6]
-    frame.columns = ['Time', 'Open', 'High', 'Low', 'Close', 'Volume']
-    frame.set_index('Time', inplace=True)
-    frame.index = pd.to_datetime(frame.index, unit='ms')
-    frame = frame.astype(float)
-    return frame
 
 def apply_technicals(df, short_window, long_window):
     df['EMA_Short'] = ta.ema(df['Close'], length=short_window)
@@ -87,18 +78,22 @@ def execute_trade(symbol, quantity, side):
 
     
 symbol = 'BTCUSDT'
-quantity = 0.001  # Adjust according to your budget
 short_window = 5
 long_window = 20
 interval = '1m'
 lookback = '30'
 
 def get_trade_quantity(symbol, percentage=0.01):
-    balance = client.get_asset_balance(asset='USDT')
-    usdt_balance = float(balance['free'])
-    last_price = float(client.get_symbol_ticker(symbol=symbol)['price'])
-    quantity = (usdt_balance * percentage) / last_price
-    return round(quantity, 6)
+    try:
+        balance = client.get_asset_balance(asset='USDT')
+        usdt_balance = float(balance['free'])
+        last_price = float(client.get_symbol_ticker(symbol=symbol)['price'])
+        quantity = (usdt_balance * percentage) / last_price
+        quantity = round(quantity, 6)  # Binance allows up to 6 decimal places
+        return quantity
+    except Exception as e:
+        logging.error(f"Error calculating trade quantity: {e}")
+        return None
 
 
 def check_balances():
@@ -116,22 +111,38 @@ def check_balances():
 
 def main():
     check_balances()
+    position = 0
     while True:
-        df = get_historical_data(symbol, interval, lookback)
-        apply_technicals(df, short_window, long_window)
-        generate_signals(df)
-        latest_position = df['Position'].iloc[-1]
+        try:
+            # Fetch the latest data
+            df = get_historical_data(client, symbol, interval, lookback)
+            apply_technicals(df, short_window, long_window)
+            generate_signals(df)
+            latest_signal = df['Signal'].iloc[-1]
+            latest_position = df['Position'].iloc[-1]
+            print(f"Latest Signal: {latest_signal}, Latest Position Change: {latest_position}")
 
-        if latest_position == 2:
-            # Buy signal
-            execute_trade(symbol, quantity, SIDE_BUY)
-        elif latest_position == -2:
-            # Sell signal
-            execute_trade(symbol, quantity, SIDE_SELL)
-        else:
-            print("No trade executed.")
+            quantity = get_trade_quantity(symbol, percentage=0.01)
+            if quantity is None or quantity <= 0:
+                print("Insufficient balance to place order.")
+                time.sleep(60)
+                continue
 
-        time.sleep(60)  # Wait for the next interval
+            if latest_position == 1 and position == 0:
+                # Buy signal
+                execute_trade(symbol, quantity, SIDE_BUY)
+                position = 1  # Update position to holding
+            elif latest_position == -1 and position == 1:
+                # Sell signal
+                execute_trade(symbol, quantity, SIDE_SELL)
+                position = 0  # Update position to no holding
+            else:
+                print("No trade executed.")
+
+            time.sleep(60)  # Wait for the next interval
+        except Exception as e:
+            logging.error(f"Error in main loop: {e}")
+            time.sleep(60)  # Wait before retrying
 
 if __name__ == "__main__":
     main()

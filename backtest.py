@@ -11,7 +11,7 @@ client = Client()  # No API keys needed for public data
 if __name__ == "__main__":
     # Convert date strings to timestamps in milliseconds
     start_str = "2024-01-01"
-    end_str = "2024-03-01"  # Adjust the end date for a shorter timeframe
+    end_str = "2024-10-01"  # Adjust the end date for a shorter timeframe
 
     start_ts = int(datetime.datetime.strptime(start_str, "%Y-%m-%d").timestamp() * 1000)
     end_ts = int(datetime.datetime.strptime(end_str, "%Y-%m-%d").timestamp() * 1000)
@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # Fetch historical data and save to CSV
     historical_data = get_historical_data(
         symbols=symbols,
-        interval=Client.KLINE_INTERVAL_1MINUTE,
+        interval=Client.KLINE_INTERVAL_15MINUTE,
         start_ts=start_ts,
         end_ts=end_ts,
     )
@@ -50,6 +50,7 @@ if __name__ == "__main__":
         # Add analyzers
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trade_analyzer')
 
         # Run backtest
         print("Starting Portfolio Value: %.2f" % cerebro.broker.getvalue())
@@ -60,8 +61,36 @@ if __name__ == "__main__":
         strat = results[0]
         sharpe = strat.analyzers.sharpe.get_analysis()
         drawdown = strat.analyzers.drawdown.get_analysis()
+        trade_analyzer = strat.analyzers.trade_analyzer.get_analysis()
         print(f"Sharpe Ratio: {sharpe.get('sharperatio', None)}")
         print(f"Max Drawdown: {drawdown.max.drawdown:.2f}%")
+        
+        total_trades = trade_analyzer.total.closed if hasattr(trade_analyzer.total, 'closed') else 0
+        profitable_trades = trade_analyzer.won.total if hasattr(trade_analyzer.won, 'total') else 0
+        losing_trades = trade_analyzer.lost.total if hasattr(trade_analyzer.lost, 'total') else 0
+
+        print(f"Total Trades: {total_trades}")
+        print(f"Profitable Trades: {profitable_trades}")
+        print(f"Losing Trades: {losing_trades}")
+        
+        # Calculate win rate
+        win_rate = (profitable_trades / total_trades) * 100 if total_trades > 0 else 0
+
+        # Total gross profit and loss
+        gross_profit = trade_analyzer.won.pnl.total if hasattr(trade_analyzer.won.pnl, 'total') else 0
+        gross_loss = trade_analyzer.lost.pnl.total if hasattr(trade_analyzer.lost.pnl, 'total') else 0
+
+        # Average profit and loss per trade
+        avg_profit = trade_analyzer.won.pnl.average if hasattr(trade_analyzer.won.pnl, 'average') else 0
+        avg_loss = trade_analyzer.lost.pnl.average if hasattr(trade_analyzer.lost.pnl, 'average') else 0
+
+        # Profit factor
+        profit_factor = (gross_profit / abs(gross_loss)) if gross_loss != 0 else None
+
+        print(f"Win Rate: {win_rate:.2f}%")
+        print(f"Average Profit per Trade: {avg_profit:.2f}")
+        print(f"Average Loss per Trade: {avg_loss:.2f}")
+        print(f"Profit Factor: {profit_factor:.2f}")
 
         # Plot results
         cerebro.plot()

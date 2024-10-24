@@ -4,6 +4,9 @@ import backtrader as bt
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import accuracy_score
 from joblib import dump, load
 
 class AdvancedStrategy(bt.Strategy):
@@ -115,55 +118,92 @@ class MLStrategy(bt.Strategy):
     def __init__(self):
         self.symbols = [data._name for data in self.datas]
         self.models = {}
+        self.scalers = {}
         self.feature_data = {}
-        self.min_data_points = self.params.lookback + 1
+        self.min_data_points = self.params.lookback + 50  # Increase to ensure enough data for training
 
         for data in self.datas:
             symbol = data._name
             self.feature_data[symbol] = pd.DataFrame()
             self.models[symbol] = RandomForestClassifier(n_estimators=self.params.n_estimators)
+            self.scalers[symbol] = StandardScaler()
+
+            # Initialize indicators for feature calculation
+            data.ema_short = bt.indicators.EMA(data.close, period=12)
+            data.ema_long = bt.indicators.EMA(data.close, period=26)
+            data.macd = bt.indicators.MACD(data.close)
+            data.rsi = bt.indicators.RSI(data.close)
+            data.adx = bt.indicators.ADX(data)
+            data.stochastic = bt.indicators.Stochastic(data)
+            data.bollinger = bt.indicators.BollingerBands(data.close)
 
     def next(self):
         for data in self.datas:
             symbol = data._name
             pos = self.getposition(data).size
-            price = data.close[0]
             current_date = data.datetime.datetime(0)
 
             # Prepare features
-            ind = {}
-            ind['close'] = data.close[0]
-            ind['open'] = data.open[0]
-            ind['high'] = data.high[0]
-            ind['low'] = data.low[0]
-            ind['volume'] = data.volume[0]
-            ind['rsi'] = bt.indicators.RSI(data.close, period=14)[0]
-            ind['macd'] = bt.indicators.MACD(data.close).macd[0]
-            ind['ema'] = bt.indicators.EMA(data.close, period=14)[0]
+            features = {
+                'close': data.close[0],
+                'open': data.open[0],
+                'high': data.high[0],
+                'low': data.low[0],
+                'volume': data.volume[0],
+                'ema_short': data.ema_short[0],
+                'ema_long': data.ema_long[0],
+                'macd': data.macd.macd[0],
+                'macd_signal': data.macd.signal[0],
+                'rsi': data.rsi[0],
+                'adx': data.adx[0],
+                'stochastic_k': data.stochastic.percK[0],
+                'stochastic_d': data.stochastic.percD[0],
+                'bollinger_mid': data.bollinger.mid[0],
+                'bollinger_upper': data.bollinger.top[0],
+                'bollinger_lower': data.bollinger.bot[0],
+            }
 
             # Append to feature data
-            self.feature_data[symbol] = self.feature_data[symbol].append(ind, ignore_index=True)
+            self.feature_data[symbol] = self.feature_data[symbol].append(features, ignore_index=True)
 
             # Ensure enough data points to train
             if len(self.feature_data[symbol]) > self.min_data_points:
-                # Prepare training data
                 df = self.feature_data[symbol].copy()
-                df['target'] = df['close'].shift(-1) > df['close']
+
+                # Create lagged features
+                for i in range(1, self.params.lookback + 1):
+                    df[f'close_lag_{i}'] = df['close'].shift(i)
+                    df[f'rsi_lag_{i}'] = df['rsi'].shift(i)
+
+                # Drop rows with NaN values
                 df.dropna(inplace=True)
 
-                features = df[['close', 'open', 'high', 'low', 'volume', 'rsi', 'macd', 'ema']]
-                target = df['target']
+                # Define target variable
+                df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
 
-                # Train the model
-                self.models[symbol].fit(features[:-1], target[:-1])
+                # Avoid look-ahead bias by excluding the last row
+                X = df.drop(['target'], axis=1)[:-1]
+                y = df['target'][:-1]
 
-                # Make prediction
-                last_features = features.iloc[-1].values.reshape(1, -1)
-                prediction = self.models[symbol].predict(last_features)
+                # Scale features
+                X_scaled = self.scalers[symbol].fit_transform(X)
 
-                if pos == 0 and prediction == True:
+                # Train the model using Time Series Split
+                tscv = TimeSeriesSplit(n_splits=5)
+                for train_index, test_index in tscv.split(X_scaled):
+                    X_train, X_test = X_scaled[train_index], X_scaled[test_index]
+                    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+                    self.models[symbol].fit(X_train, y_train)
+
+                # Make prediction on the latest data point
+                last_features = X.iloc[-1].values.reshape(1, -1)
+                last_features_scaled = self.scalers[symbol].transform(last_features)
+                prediction = self.models[symbol].predict(last_features_scaled)
+
+                # Trading logic
+                if pos == 0 and prediction == 1:
                     self.buy(data=data)
                     print(f"Buy order executed for {symbol} on {current_date}")
-                elif pos != 0 and prediction == False:
+                elif pos != 0 and prediction == 0:
                     self.close(data=data)
                     print(f"Sell order executed for {symbol} on {current_date}")
