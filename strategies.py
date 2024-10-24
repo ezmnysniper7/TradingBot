@@ -46,11 +46,17 @@ class AdvancedStrategy(bt.Strategy):
             rsi = ind['rsi'][0]
             atr = ind['atr'][0]
             bollinger_mid = ind['bollinger'].mid[0]
-            stochastic_k = ind['stochastic'].percentk[0]
-            stochastic_d = ind['stochastic'].percentd[0]
-            ichimoku_span_a = ind['ichimoku'].span_a[0]
-            ichimoku_span_b = ind['ichimoku'].span_b[0]
+            stochastic_k = ind['stochastic'].percK[0]
+            stochastic_d = ind['stochastic'].percD[0]
+            ichimoku_span_a = ind['ichimoku'].senkou_span_a[0]
+            ichimoku_span_b = ind['ichimoku'].senkou_span_b[0]
             current_date = data.datetime.datetime(0)
+            # Check if any indicators are NaN
+            if any(np.isnan(value) for value in [
+                ema_short, ema_long, macd_line, macd_signal, adx,
+                rsi, stochastic_k, stochastic_d, ichimoku_span_a, ichimoku_span_b
+            ]):
+                continue
 
             # Print indicator values
             print(
@@ -63,8 +69,8 @@ class AdvancedStrategy(bt.Strategy):
                 if (
                     ema_short > ema_long and
                     macd_line > macd_signal and
-                    adx > 25 and
-                    20 < rsi < 80 and
+                    adx > 20 and
+                    10 < rsi < 90 and
                     stochastic_k > stochastic_d and
                     price > bollinger_mid and
                     price > ichimoku_span_a and
