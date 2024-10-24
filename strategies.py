@@ -31,7 +31,7 @@ class AdvancedStrategy(bt.Strategy):
             ind['atr'] = bt.indicators.ATR(data, period=self.params.atr_period)
             ind['bollinger'] = bt.indicators.BollingerBands(data.close)
             ind['stochastic'] = bt.indicators.Stochastic(data)
-            ind['ichimoku'] = bt.indicators.Ichimoku()
+            ind['ichimoku'] = bt.indicators.Ichimoku(data)
             ind['buy_price'] = None
             ind['stop_loss_price'] = None
 

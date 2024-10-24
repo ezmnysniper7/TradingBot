@@ -10,7 +10,10 @@ venv/
 config.py
 
 # Ignore History data csv
+ADAUSDT_historical.csv
 BNBUSDT_historical.csv
-btc_usdt_historical.csv
 BTCUSDT_historical.csv
+DOGEUSDT_historical.csv
 ETHUSDT_historical.csv
+SOLUSDT_historical.csv
+XRPUSDT_historical.csv

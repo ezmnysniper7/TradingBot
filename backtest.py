@@ -16,7 +16,7 @@ if __name__ == "__main__":
     start_ts = int(datetime.datetime.strptime(start_str, "%Y-%m-%d").timestamp() * 1000)
     end_ts = int(datetime.datetime.strptime(end_str, "%Y-%m-%d").timestamp() * 1000)
     
-    symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+    symbols = ["ETHUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
 
     # Fetch historical data and save to CSV
     historical_data = get_historical_data(
@@ -50,47 +50,59 @@ if __name__ == "__main__":
         # Add analyzers
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trade_analyzer')
+
+        # Add a TradeAnalyzer for each data feed
+        for data in cerebro.datas:
+            analyzer_name = 'ta_{}'.format(data._name)
+            cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name=analyzer_name)
 
         # Run backtest
         print("Starting Portfolio Value: %.2f" % cerebro.broker.getvalue())
         results = cerebro.run()
         print("Final Portfolio Value: %.2f" % cerebro.broker.getvalue())
 
-        # Extract and print analyzers
+        # Extract and print global analyzers
         strat = results[0]
         sharpe = strat.analyzers.sharpe.get_analysis()
         drawdown = strat.analyzers.drawdown.get_analysis()
-        trade_analyzer = strat.analyzers.trade_analyzer.get_analysis()
         print(f"Sharpe Ratio: {sharpe.get('sharperatio', None)}")
         print(f"Max Drawdown: {drawdown.max.drawdown:.2f}%")
-        
-        total_trades = trade_analyzer.total.closed if hasattr(trade_analyzer.total, 'closed') else 0
-        profitable_trades = trade_analyzer.won.total if hasattr(trade_analyzer.won, 'total') else 0
-        losing_trades = trade_analyzer.lost.total if hasattr(trade_analyzer.lost, 'total') else 0
 
-        print(f"Total Trades: {total_trades}")
-        print(f"Profitable Trades: {profitable_trades}")
-        print(f"Losing Trades: {losing_trades}")
-        
-        # Calculate win rate
-        win_rate = (profitable_trades / total_trades) * 100 if total_trades > 0 else 0
+        # Extract and print trade statistics per symbol
+        for data in cerebro.datas:
+            symbol = data._name
+            analyzer_name = 'ta_{}'.format(symbol)
+            trade_analyzer = strat.analyzers.getbyname(analyzer_name)
+            trade_analysis = trade_analyzer.get_analysis()
 
-        # Total gross profit and loss
-        gross_profit = trade_analyzer.won.pnl.total if hasattr(trade_analyzer.won.pnl, 'total') else 0
-        gross_loss = trade_analyzer.lost.pnl.total if hasattr(trade_analyzer.lost.pnl, 'total') else 0
+            # Extract trade statistics
+            total_trades = trade_analysis.total.closed if hasattr(trade_analysis.total, 'closed') else 0
+            profitable_trades = trade_analysis.won.total if hasattr(trade_analysis.won, 'total') else 0
+            losing_trades = trade_analysis.lost.total if hasattr(trade_analysis.lost, 'total') else 0
 
-        # Average profit and loss per trade
-        avg_profit = trade_analyzer.won.pnl.average if hasattr(trade_analyzer.won.pnl, 'average') else 0
-        avg_loss = trade_analyzer.lost.pnl.average if hasattr(trade_analyzer.lost.pnl, 'average') else 0
+            # Calculate win rate
+            win_rate = (profitable_trades / total_trades) * 100 if total_trades > 0 else 0
 
-        # Profit factor
-        profit_factor = (gross_profit / abs(gross_loss)) if gross_loss != 0 else None
+            # Total gross profit and loss
+            gross_profit = trade_analysis.won.pnl.total if hasattr(trade_analysis.won.pnl, 'total') else 0
+            gross_loss = trade_analysis.lost.pnl.total if hasattr(trade_analysis.lost.pnl, 'total') else 0
 
-        print(f"Win Rate: {win_rate:.2f}%")
-        print(f"Average Profit per Trade: {avg_profit:.2f}")
-        print(f"Average Loss per Trade: {avg_loss:.2f}")
-        print(f"Profit Factor: {profit_factor:.2f}")
+            # Average profit and loss per trade
+            avg_profit = trade_analysis.won.pnl.average if hasattr(trade_analysis.won.pnl, 'average') else 0
+            avg_loss = trade_analysis.lost.pnl.average if hasattr(trade_analysis.lost.pnl, 'average') else 0
+
+            # Profit factor
+            profit_factor = (gross_profit / abs(gross_loss)) if gross_loss != 0 else None
+
+            # Print per-symbol statistics
+            print(f"\n--- Trade Analysis for {symbol} ---")
+            print(f"Total Trades: {total_trades}")
+            print(f"Profitable Trades: {profitable_trades}")
+            print(f"Losing Trades: {losing_trades}")
+            print(f"Win Rate: {win_rate:.2f}%")
+            print(f"Average Profit per Trade: {avg_profit:.2f}")
+            print(f"Average Loss per Trade: {avg_loss:.2f}")
+            print(f"Profit Factor: {profit_factor:.2f}")
 
         # Plot results
         cerebro.plot()
